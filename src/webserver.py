@@ -80,17 +80,21 @@ class WebServer:
         def handler(req, res):
             relative_path = "index.html" if req["route"] == route else req["route"][len(
                 route):]
-
             separator = "" if relative_path.startswith("/") else "/"
             file_path = file_root_dir + separator + relative_path
-            try:
-                f = open(file_path, "rb")
+            if relative_path.find("..") >= 0:
                 res.update(build_http_response(
-                    200, ["Content-Type: text/html"], f.read()))
-                f.close()
-            except:
-                res.update(build_http_response(
-                    404, ["Content-Type: text/html"], b"File not found!"))
+                    403, ["Content-Type: text/html"], b"Invalid file path!"))
+            else:
+                try:
+
+                    f = open(file_path, "rb")
+                    res.update(build_http_response(
+                        200, ["Content-Type: text/html"], f.read()))
+                    f.close()
+                except:
+                    res.update(build_http_response(
+                        404, ["Content-Type: text/html"], b"File not found!"))
 
         self.register_handler(
             "GET", route+"**" if route.endswith("/") else route+"/**", handler)
