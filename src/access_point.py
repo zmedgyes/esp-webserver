@@ -34,7 +34,7 @@ class AccessPoint:
         if conn_limit < self.MIN_CONN_LIMIT or conn_limit > self.MAX_CONN_LIMIT:
             raise RuntimeError("conn_limit out of bounds")
 
-        self._esp.mode = self._esp.MODE_SOFTAP
+        self._esp.mode = self._esp.MODE_SOFTAPSTATION
 
         hidden_arg = self.SSID_HIDDEN if hidden else self.SSID_PUBLIC
         cmd = 'AT+CWSAP_CUR="'+secrets["ssid"]+'","'+secrets["password"]+'"'
@@ -44,13 +44,13 @@ class AccessPoint:
         cmd += ',%d' % hidden_arg
 
         self._esp.at_response(cmd)
+        self._esp.at_response("AT+CIPMUX=1")
 
     def get_ip(self) -> bytearray:
         return self._esp.at_response("AT+CIFSR").strip(b"\r\n")
 
     def start_listen(self, port: int = 80) -> None:
         self._port = port
-        self._esp.at_response("AT+CIPMUX=1")
         # AT+CIPDINFO = 1
         cmd = 'AT+CIPSERVER=1,%d' % port
         self._esp.at_response(cmd)
@@ -58,7 +58,6 @@ class AccessPoint:
     def stop_listen(self) -> None:
         cmd = 'AT+CIPSERVER=0,%d' % self._port
         self._esp.at_response(cmd)
-        self._esp.at_response("AT+CIPMUX=0")
 
     def socket_receive(self, timeout: int = 5) -> Tuple[int, bytearray]:
         # pylint: disable=too-many-nested-blocks, too-many-branches
@@ -169,4 +168,13 @@ class AccessPoint:
 
     def socket_disconnect(self, link_id: int) -> None:
         cmd = "AT+CIPCLOSE=%d" % link_id
+        self._esp.at_response(cmd, retries=1)
+
+    def udp_listen(self, port: int) -> None:
+        cmd = 'AT+CIPSTART=0,"UDP","0.0.0.0",%d' % port
+        cmd += ',%d,2' % port
+        self._esp.at_response(cmd, retries=1)
+
+    def udp_close(self) -> None:
+        cmd = "AT+CIPCLOSE=0"
         self._esp.at_response(cmd, retries=1)
