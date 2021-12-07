@@ -34,11 +34,16 @@ while running:
             print("Configuring AP...")
             ap.configure_ap(secrets, 5, ENCRYPTION_WPA2_PSK, 1, False)
             print("IP address:", ap.get_ip())
-            dns = DnsServer(ap)
+            server = WebServer(ap, debug=True)
+            server.register_static_handler("/", "www")
+            server.listen(80)
+            dns = DnsServer(ap, debug=True)
             dns.listen(53)
             AP_listening = True
 
-        dns.do_recieve_cycle()
+        message = ap.socket_receive()
+        dns.handle_message(message)
+        server.handle_message(message)
 
     except (ValueError, RuntimeError, OKError) as e:
         print("Failed, closing\n", e)

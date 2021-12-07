@@ -1,6 +1,11 @@
 import binascii
 from access_point import AccessPoint
 
+try:
+    from typing import Tuple
+except ImportError:
+    pass
+
 
 def get_bits(src: int, mask: int, shift_back: int) -> int:
     return (src & mask) >> shift_back
@@ -220,22 +225,43 @@ class DnsAnswer:
 
 
 class DnsServer:
-    def __init__(self, ap: AccessPoint) -> None:
+
+    def __init__(self, ap: AccessPoint, debug: bool = False) -> None:
         self._ap = ap
+        self._debug = debug
+        # To avoid link collision with TCP
+        self._link_id = ap.conn_limit + 1
+        self._local_ip = ap.get_ip()
 
     def listen(self, port: int) -> None:
-        self._ap.udp_listen(port)
+        self._ap.udp_listen(port, self._link_id)
+        if self._debug:
+            print("DNSSERVER -> Listening on port: ", port)
 
     def close(self) -> None:
-        self._ap.udp_close()
+        self._ap.udp_close(self._link_id)
+        if self._debug:
+            print("DNSSERVER -> Closed")
 
     def do_recieve_cycle(self) -> None:
-        (link_id, data) = self._ap.socket_receive()
-        if len(data) > 16 and link_id == 0:
+        if self._debug:
+            print("DNSSERVER -> Waiting for request...")
+
+        message = self._ap.socket_receive()
+        self.handle_message(message)
+
+    def handle_message(self, message: Tuple[int, bytearray]) -> None:
+        (link_id, data) = message
+        if len(data) > 16 and link_id == self._link_id:
             header = DnsHeader()
             header.parse(data[:DnsHeader.BYTE_LENGTH])
             question = DnsQuestion()
             question.parse(data[DnsHeader.BYTE_LENGTH:])
+
+            if self._debug:
+                print('DNSSERVER -> Request header: ', header)
+                print('DNSSERVER -> Request question: ', question)
+
             header.QR = 1
             header.RA = 1
             header.ANSWER_C = 1
@@ -245,7 +271,13 @@ class DnsServer:
             answer.TYPE = question.TYPE
             answer.CLASS = question.CLASS
             answer.TTL = 300
-            answer.set_data("192.168.4.1")
+
+            answer.set_data(self._local_ip)
+
+            if self._debug:
+                print('DNSSERVER -> Reponse header: ', header)
+                print('DNSSERVER -> Response question: ', question)
+                print('DNSSERVER -> Response answer: ', answer)
 
             dns_response = b"".join([
                 header.serialize(),

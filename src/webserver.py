@@ -1,6 +1,7 @@
 from access_point import AccessPoint
+from adafruit_espatcontrol.adafruit_espatcontrol import OKError
 try:
-    from typing import TypedDict, List, Dict, Callable
+    from typing import TypedDict, List, Dict, Tuple, Callable
     HTTPRequest = TypedDict("HTTPRequest", {
                             "method": str, "route": str, "protocol_version": str, "headers": List[str], "body": bytearray})
     HTTPResponse = TypedDict("HTTPResponse", {
@@ -198,8 +199,12 @@ class WebServer:
     def do_receive_cycle(self, timeout: int = 5) -> None:
         if self._debug:
             print("WEBSERVER -> Waiting for request...")
-        (link_id, data) = self._ap.socket_receive(timeout)
-        if link_id >= 0:
+        message = self._ap.socket_receive(timeout)
+        self.handle_message(message)
+
+    def handle_message(self, message: Tuple[int, bytearray]) -> None:
+        (link_id, data) = message
+        if link_id in range(0, self._ap.conn_limit):
             req = self._parse_http_request(data)
             res = build_http_response()
 
@@ -216,4 +221,7 @@ class WebServer:
             if self._debug:
                 print("WEBSERVER -> Response:", res)
             self._ap.socket_send(link_id, self._build_http_response(req, res))
-            self._ap.socket_disconnect(link_id)
+            try:
+                self._ap.socket_disconnect(link_id)
+            except OKError:
+                pass

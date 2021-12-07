@@ -23,6 +23,7 @@ class AccessPoint:
 
     def __init__(self, esp: ESP_ATcontrol) -> None:
         self._esp = esp
+        self.conn_limit = 1
 
     def configure_ap(self, secrets: Dict[str, str], channel: int = 5, encryption: int = ENCRYPTION_OPEN, conn_limit: int = 1, hidden: bool = False) -> None:
         if "ssid" not in secrets:
@@ -35,6 +36,7 @@ class AccessPoint:
             raise RuntimeError("conn_limit out of bounds")
 
         self._esp.mode = self._esp.MODE_SOFTAPSTATION
+        self._esp.at_response("AT+CIPMUX=1")
 
         hidden_arg = self.SSID_HIDDEN if hidden else self.SSID_PUBLIC
         cmd = 'AT+CWSAP_CUR="'+secrets["ssid"]+'","'+secrets["password"]+'"'
@@ -44,10 +46,14 @@ class AccessPoint:
         cmd += ',%d' % hidden_arg
 
         self._esp.at_response(cmd)
-        self._esp.at_response("AT+CIPMUX=1")
+        self.conn_limit = conn_limit
 
     def get_ip(self) -> bytearray:
-        return self._esp.at_response("AT+CIFSR").strip(b"\r\n")
+        reply = self._esp.at_response("AT+CIFSR").strip(b"\r\n")
+        for line in reply.split(b"\r\n"):
+            if line and line.startswith(b'+CIFSR:APIP,"'):
+                return str(line[13:-1], "utf-8")
+        raise RuntimeError("Couldn't find IP address")
 
     def start_listen(self, port: int = 80) -> None:
         self._port = port
@@ -143,7 +149,6 @@ class AccessPoint:
             if self._esp._uart.in_waiting:
                 prompt += self._esp._uart.read(1)
                 self._esp.hw_flow(False)
-                # print(prompt)
                 if prompt[-1:] == b">":
                     break
             else:
@@ -157,9 +162,10 @@ class AccessPoint:
         while (time.monotonic() - stamp) < timeout:
             if self._esp._uart.in_waiting:
                 response += self._esp._uart.read(self._esp._uart.in_waiting)
-                if response[-9:] == b"SEND OK\r\n":
+                response_parts = response.split(b"\r\n")
+                if b"SEND OK" in response_parts:
                     break
-                if response[-7:] == b"ERROR\r\n":
+                if b"ERROR" in response_parts:
                     break
         if self._esp._debug:
             print("<---", response)
@@ -170,11 +176,12 @@ class AccessPoint:
         cmd = "AT+CIPCLOSE=%d" % link_id
         self._esp.at_response(cmd, retries=1)
 
-    def udp_listen(self, port: int) -> None:
-        cmd = 'AT+CIPSTART=0,"UDP","0.0.0.0",%d' % port
+    def udp_listen(self, port: int, link_id: int = 4) -> None:
+        cmd = 'AT+CIPSTART=%d' % link_id
+        cmd += ',"UDP","0.0.0.0",%d' % port
         cmd += ',%d,2' % port
         self._esp.at_response(cmd, retries=1)
 
-    def udp_close(self) -> None:
-        cmd = "AT+CIPCLOSE=0"
+    def udp_close(self, link_id: int = 4) -> None:
+        cmd = "AT+CIPCLOSE=%d" % link_id
         self._esp.at_response(cmd, retries=1)
